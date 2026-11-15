@@ -3,8 +3,7 @@
 A diagnostic MCP App that answers one question: on a surface with no local
 engine (claude.ai web, Claude iOS, Claude Android), can an MCP App instantiate
 Fyug's WASM engine, load its AudioWorklet module by URL from a declared origin,
-and play sound? It is a standalone, temporary test; delete it once the
-results are recorded. Nothing here is product code.
+and play sound? It is a standalone test, not product code.
 
 The server is one stateless streamable-HTTP MCP server (one Vercel function)
 with one tool, `wasm_probe`, that opens the page. The page declares the engine
