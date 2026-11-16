@@ -23,6 +23,7 @@ from pathlib import Path
 
 CHECKOUT = Path(__file__).resolve().parents[1]
 VERSION, REPOSITORY = "2026.11.1", "testorg/fyug"
+SITE, BUILD = "testorg/fyug-web", "20261116153012-450d154"
 EXECUTABLE = "functions/mcp.func/executable"
 IGNORED = shutil.ignore_patterns(".git", ".vercel", "node_modules")
 
@@ -168,22 +169,35 @@ class FyugWebBuild(unittest.TestCase):
         self.assert_output(self.files, served_pin("testorg/fyug-releases", VERSION, self.sha))
 
     def test_a_build_pin_serves_that_builds_archive_and_names_the_build(self):
-        build = "20261116153012-450d154"
-        files = archive_files(VERSION, build=build)
-        data = make_archive(files)
-        self.serve(data, repository="testorg/fyug-web", build=build)
-        done = self.build(pin("testorg/fyug-web", sha256=sha256_hex(data), extra=f"build={build}\n"))
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.downloads.requests[0], release_path("testorg/fyug-web", VERSION, build))
-        self.assert_output(files, served_pin("testorg/fyug-web", VERSION, sha256_hex(data), build))
+        for build in (BUILD, "0", "a" + "-" * 38 + "9"):  # the longest and shortest build ids too
+            with self.subTest(build=build):
+                files = archive_files(VERSION, build=build)
+                data = make_archive(files)
+                self.serve(data, repository=SITE, build=build)
+                self.downloads.requests.clear()
+                done = self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={build}\n"))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(self.downloads.requests[0], release_path(SITE, VERSION, build))
+                self.assert_output(files, served_pin(SITE, VERSION, sha256_hex(data), build))
 
-    def test_a_build_pin_needs_an_archive_made_for_that_build(self):
-        build = "20261116153012-450d154"
-        for label, made_for in (("another build", "20261116153012-aaaaaaa"), ("no build", None)):
+    def test_a_build_pin_needs_an_archive_made_for_that_build_and_version(self):
+        cases = {
+            "another build": archive_files(VERSION, build="20261116153012-aaaaaaa"),
+            "no build": archive_files(VERSION),
+            "another version": archive_files(VERSION, provenance_version="2026.11.0", build=BUILD),
+            "no build output": archive_files(VERSION, build=BUILD, omit=("output/config.json",)),
+        }
+        for label, files in cases.items():
             with self.subTest(label):
-                data = make_archive(archive_files(VERSION, build=made_for))
-                self.serve(data, repository="testorg/fyug-web", build=build)
-                self.assert_refused(self.build(pin("testorg/fyug-web", sha256=sha256_hex(data), extra=f"build={build}\n")))
+                data = make_archive(files)
+                self.serve(data, repository=SITE, build=BUILD)
+                self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n")))
+
+    def test_a_build_pin_does_not_fall_back_to_the_release_download(self):
+        data = make_archive(archive_files(VERSION, build=BUILD))
+        self.serve(data, repository=SITE)  # served only where a release pin would look
+        self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n")))
+        self.assertIn(release_path(SITE, VERSION, BUILD), self.downloads.requests)
 
     def test_a_build_with_the_same_pin_run_twice_gives_the_same_output(self):
         self.serve()
@@ -197,10 +211,13 @@ class FyugWebBuild(unittest.TestCase):
     # --- a build that cannot trust its archive deploys nothing -------------
     def test_a_download_with_another_hash_fails_and_names_the_pinned_hash(self):
         self.serve()
+        self.serve(make_archive(archive_files(VERSION, build=BUILD)), repository=SITE, build=BUILD)
         pinned = "0123456789abcdef" * 4
-        done = self.build(pin(sha256=pinned))
-        self.assert_refused(done)
-        self.assertIn(pinned, done.stderr)
+        for label, text in (("release pin", pin(sha256=pinned)), ("build pin", pin(SITE, sha256=pinned, extra=f"build={BUILD}\n"))):
+            with self.subTest(label):
+                done = self.build(text)
+                self.assert_refused(done)
+                self.assertIn(pinned, done.stderr)
 
     def test_a_missing_release_fails(self):
         done = self.build(pin(sha256=self.sha))  # nothing is served: HTTP 404
@@ -230,10 +247,7 @@ class FyugWebBuild(unittest.TestCase):
             "no sha256": f"repository={REPOSITORY}\nversion={VERSION}\n",
             "duplicate key": pin(sha256=self.sha, extra=f"version={VERSION}\n"),
             "unknown key": pin(sha256=self.sha, extra="channel=stable\n"),
-            "empty build": pin(sha256=self.sha, extra="build=\n"),
             "build twice": pin(sha256=self.sha, extra="build=b1\nbuild=b2\n"),
-            "uppercase build": pin(sha256=self.sha, extra="build=B1\n"),
-            "build with a slash": pin(sha256=self.sha, extra="build=b/1\n"),
             "uppercase hash": pin(sha256=self.sha.upper()),
             "hash too long": pin(sha256=self.sha + "0"),
             "empty file": "",
@@ -242,6 +256,12 @@ class FyugWebBuild(unittest.TestCase):
             with self.subTest(label):
                 self.downloads.any_release = self.data
                 self.assert_refused(self.build(text))
+        # A bad build id, with an archive made for it that would otherwise pass.
+        for build in ("", "UPPER", "has space", "-leading", "a" * 41, "a/b", "..", "a_b", "a.b"):
+            with self.subTest(build=build):
+                data = make_archive(archive_files(VERSION, build=build or BUILD))
+                self.downloads.any_release = data
+                self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={build}\n")))
         for version in ("2026.11", "v2026.11.1", "2026.11.1-rc1", "2026.11.1.2", "2026.11.x"):
             with self.subTest(version=version):
                 data = make_archive(archive_files(version))
