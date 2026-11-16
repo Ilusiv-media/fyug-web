@@ -25,7 +25,9 @@ deployment it then merges the pull request and checks the public URL.
 ## Rollback
 
 Revert the pin commit on `main` (the merged pull request's Revert button, then
-merge the revert). Vercel builds the previous pin and serves it.
+merge the revert). Vercel builds the previous pin and serves it. Merge pin pull
+requests with "Rebase and merge", as the release workflow does, so each pin
+commit lands on `main` as written.
 
 ## Build locally
 

@@ -20,6 +20,7 @@ fail() {
 }
 
 # release.txt: key=value lines; blank lines and # comments are ignored.
+[ -f release.txt ] || fail "no release.txt"
 repository="" version="" sha256=""
 seen=" "
 while IFS= read -r line || [ -n "$line" ]; do
@@ -52,7 +53,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 echo "Downloading $url"
-curl -fsSL --retry 3 -o "$work/$name" "$url" || fail "could not download $url"
+curl -fsSL --retry 3 --connect-timeout 20 --max-time 600 -o "$work/$name" "$url" || fail "could not download $url"
 
 if command -v sha256sum >/dev/null; then
   actual="$(sha256sum "$work/$name" | cut -d' ' -f1)"
@@ -63,7 +64,7 @@ fi
 
 mkdir "$work/archive"
 tar -xJf "$work/$name" -C "$work/archive" || fail "could not unpack $name"
-grep -qx "product_version=$version" "$work/archive/provenance.txt" 2>/dev/null ||
+grep -qxF "product_version=$version" "$work/archive/provenance.txt" 2>/dev/null ||
   fail "$name's provenance.txt does not name product_version=$version"
 [ -f "$work/archive/output/config.json" ] || fail "$name has no output/config.json"
 
