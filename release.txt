@@ -1,5 +1,5 @@
-# The Fyug release this site serves. Promote Release changes it by pull
-# request; empty version and sha256 mean none is pinned yet.
+# The Fyug release whose hosted MCP server this site serves. Promote
+# Release changes this file; revert its commit to roll back.
 repository=Ilusiv-media/fyug
-version=
-sha256=
+version=2026.11.1
+sha256=d3bec6628123d54760b85d82e67acc827e49a37b538874f6cb830f6ed4adec28
