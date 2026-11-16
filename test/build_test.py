@@ -23,6 +23,7 @@ from pathlib import Path
 
 CHECKOUT = Path(__file__).resolve().parents[1]
 VERSION, REPOSITORY = "2026.11.1", "testorg/fyug"
+SITE, BUILD = "testorg/fyug-web", "20261116153012-450d154"
 EXECUTABLE = "functions/mcp.func/executable"
 IGNORED = shutil.ignore_patterns(".git", ".vercel", "node_modules")
 
@@ -31,10 +32,12 @@ def sha256_hex(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def archive_files(version, provenance_version=None, omit=()):
-    """name -> (bytes, mode) for a stand-in of the release's hosted archive."""
+def archive_files(version, provenance_version=None, omit=(), build=None):
+    """name -> (bytes, mode) for a stand-in of the release's hosted archive,
+    or of a hosted-only build's when `build` is given."""
+    provenance = f"product_version={provenance_version or version}\n" + (f"build={build}\n" if build else "")
     files = {
-        "provenance.txt": (f"product_version={provenance_version or version}\n".encode(), 0o644),
+        "provenance.txt": (provenance.encode(), 0o644),
         "output/config.json": (b'{\n  "version": 3\n}\n', 0o644),
         "output/functions/mcp.func/.vc-config.json": (b'{"runtime": "executable", "handler": "executable"}', 0o644),
         "output/functions/mcp.func/executable": (b"#!/bin/sh\necho stand-in server\n", 0o755),
@@ -53,8 +56,14 @@ def make_archive(files):
     return buffer.getvalue()
 
 
-def release_path(repository, version):
+def release_path(repository, version, build=None):
+    if build:
+        return f"/{repository}/releases/download/hosted-{version}-{build}/fyug-hosted-{version}-{build}.vercel.tar.xz"
     return f"/{repository}/releases/download/v{version}/fyug-hosted-{version}.vercel.tar.xz"
+
+
+def served_pin(repository, version, sha256, build=None):
+    return f"repository={repository}\nversion={version}\nsha256={sha256}\n" + (f"build={build}\n" if build else "")
 
 
 class Downloads:
@@ -131,8 +140,17 @@ class FyugWebBuild(unittest.TestCase):
         environment.update(RELEASE_DOWNLOAD_BASE=self.downloads.url, NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
         return subprocess.run(["bash", "build.sh"], cwd=self.site, capture_output=True, text=True, env=environment, timeout=180)
 
-    def serve(self, data=None, repository=REPOSITORY, version=VERSION):
-        self.downloads.routes[release_path(repository, version)] = data if data is not None else self.data
+    def serve(self, data=None, repository=REPOSITORY, version=VERSION, build=None):
+        self.downloads.routes[release_path(repository, version, build)] = data if data is not None else self.data
+
+    def assert_output(self, files, pin_text):
+        """.vercel/output is the archive's output/ tree byte for byte, plus the served pin."""
+        output = self.site / ".vercel" / "output"
+        found = {p.relative_to(output).as_posix(): p.read_bytes() for p in output.rglob("*") if p.is_file()}
+        expected = {name[len("output/"):]: data for name, (data, _) in files.items() if name.startswith("output/")}
+        expected["static/release.txt"] = pin_text.encode()
+        self.assertEqual(found, expected)
+        self.assertTrue(os.stat(output / EXECUTABLE).st_mode & 0o100, "the function's executable bit survives")
 
     def assert_refused(self, done):
         self.assertNotEqual(done.returncode, 0, done.stdout)
@@ -148,28 +166,67 @@ class FyugWebBuild(unittest.TestCase):
         done = self.build(text)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn(release_path("testorg/fyug-releases", VERSION), self.downloads.requests)
-        output = self.site / ".vercel" / "output"
-        found = {p.relative_to(output).as_posix(): p.read_bytes() for p in output.rglob("*") if p.is_file()}
-        expected = {name[len("output/"):]: data for name, (data, _) in self.files.items() if name.startswith("output/")}
-        self.assertEqual(found, expected)
-        self.assertTrue(os.stat(output / EXECUTABLE).st_mode & 0o100, "the function's executable bit survives")
+        self.assert_output(self.files, served_pin("testorg/fyug-releases", VERSION, self.sha))
+
+    def test_a_build_pin_serves_that_builds_archive_and_names_the_build(self):
+        for build in (BUILD, "0", "a" + "-" * 38 + "9"):  # the longest and shortest build ids too
+            with self.subTest(build=build):
+                files = archive_files(VERSION, build=build)
+                data = make_archive(files)
+                self.serve(data, repository=SITE, build=build)
+                self.downloads.requests.clear()
+                done = self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={build}\n"))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(self.downloads.requests[0], release_path(SITE, VERSION, build))
+                self.assert_output(files, served_pin(SITE, VERSION, sha256_hex(data), build))
+
+    def test_a_build_pin_needs_an_archive_made_for_that_build_and_version(self):
+        cases = {
+            "another build": archive_files(VERSION, build="20261116153012-aaaaaaa"),
+            "no build": archive_files(VERSION),
+            "another version": archive_files(VERSION, provenance_version="2026.11.0", build=BUILD),
+            "no build output": archive_files(VERSION, build=BUILD, omit=("output/config.json",)),
+        }
+        for label, files in cases.items():
+            with self.subTest(label):
+                data = make_archive(files)
+                self.serve(data, repository=SITE, build=BUILD)
+                self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n")))
+
+    def test_a_build_pin_does_not_fall_back_to_the_release_download(self):
+        data = make_archive(archive_files(VERSION, build=BUILD))
+        self.serve(data, repository=SITE)  # served only where a release pin would look
+        self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n")))
+        self.assertIn(release_path(SITE, VERSION, BUILD), self.downloads.requests)
 
     def test_a_build_with_the_same_pin_run_twice_gives_the_same_output(self):
         self.serve()
-        text = pin(sha256=self.sha)
-        self.assertEqual(self.build(text).returncode, 0)
-        self.assertEqual(self.build(text).returncode, 0)
-        output = self.site / ".vercel" / "output"
-        self.assertFalse((output / "stale.txt").exists())
-        self.assertEqual((output / "config.json").read_bytes(), self.files["output/config.json"][0])
+        files = archive_files(VERSION, build=BUILD)
+        data = make_archive(files)
+        self.serve(data, repository=SITE, build=BUILD)
+        cases = (
+            (pin(sha256=self.sha), self.files, served_pin(REPOSITORY, VERSION, self.sha)),
+            # A build pin, its keys in another order.
+            (f"build={BUILD}\nsha256={sha256_hex(data)}\nversion={VERSION}\nrepository={SITE}\n", files,
+             served_pin(SITE, VERSION, sha256_hex(data), BUILD)),
+        )
+        for text, expected, served in cases:
+            with self.subTest(text):
+                for _ in range(2):
+                    done = self.build(text)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                self.assert_output(expected, served)  # the stale file an earlier build left is gone too
 
     # --- a build that cannot trust its archive deploys nothing -------------
     def test_a_download_with_another_hash_fails_and_names_the_pinned_hash(self):
         self.serve()
+        self.serve(make_archive(archive_files(VERSION, build=BUILD)), repository=SITE, build=BUILD)
         pinned = "0123456789abcdef" * 4
-        done = self.build(pin(sha256=pinned))
-        self.assert_refused(done)
-        self.assertIn(pinned, done.stderr)
+        for label, text in (("release pin", pin(sha256=pinned)), ("build pin", pin(SITE, sha256=pinned, extra=f"build={BUILD}\n"))):
+            with self.subTest(label):
+                done = self.build(text)
+                self.assert_refused(done)
+                self.assertIn(pinned, done.stderr)
 
     def test_a_missing_release_fails(self):
         done = self.build(pin(sha256=self.sha))  # nothing is served: HTTP 404
@@ -199,6 +256,7 @@ class FyugWebBuild(unittest.TestCase):
             "no sha256": f"repository={REPOSITORY}\nversion={VERSION}\n",
             "duplicate key": pin(sha256=self.sha, extra=f"version={VERSION}\n"),
             "unknown key": pin(sha256=self.sha, extra="channel=stable\n"),
+            "build twice": pin(sha256=self.sha, extra="build=b1\nbuild=b2\n"),
             "uppercase hash": pin(sha256=self.sha.upper()),
             "hash too long": pin(sha256=self.sha + "0"),
             "empty file": "",
@@ -207,6 +265,12 @@ class FyugWebBuild(unittest.TestCase):
             with self.subTest(label):
                 self.downloads.any_release = self.data
                 self.assert_refused(self.build(text))
+        # A bad build id, with an archive made for it that would otherwise pass.
+        for build in ("", "UPPER", "has space", "-leading", "a" * 41, "a/b", "..", "a_b", "a.b"):
+            with self.subTest(build=build):
+                data = make_archive(archive_files(VERSION, build=build or BUILD))
+                self.downloads.any_release = data
+                self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={build}\n")))
         for version in ("2026.11", "v2026.11.1", "2026.11.1-rc1", "2026.11.1.2", "2026.11.x"):
             with self.subTest(version=version):
                 data = make_archive(archive_files(version))
@@ -247,9 +311,16 @@ class FyugWebTree(unittest.TestCase):
                 self.assertTrue(equals, f"not key=value: {line!r}")
                 self.assertNotIn(key, keys, f"{key} appears twice")
                 keys[key] = value
-        self.assertEqual(sorted(keys), ["repository", "sha256", "version"])
-        self.assertEqual(keys["repository"], "Ilusiv-media/fyug")
-        if keys["version"] or keys["sha256"]:
+        # Promote Release pins a product release; Deploy Hosted Server pins a
+        # hosted-only build published here.
+        if "build" in keys:
+            self.assertEqual(sorted(keys), ["build", "repository", "sha256", "version"])
+            self.assertEqual(keys["repository"], "Ilusiv-media/fyug-web")
+            self.assertRegex(keys["build"], r"^[0-9a-z][0-9a-z-]{0,39}$")
+        else:
+            self.assertEqual(sorted(keys), ["repository", "sha256", "version"])
+            self.assertEqual(keys["repository"], "Ilusiv-media/fyug")
+        if keys["version"] or keys["sha256"] or "build" in keys:
             self.assertRegex(keys["version"], r"^\d+\.\d+\.\d+$")
             self.assertRegex(keys["sha256"], r"^[0-9a-f]{64}$")
 
