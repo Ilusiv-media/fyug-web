@@ -1,0 +1,5 @@
+# The Fyug release this site serves. Promote Release changes it by pull
+# request; empty version and sha256 mean none is pinned yet.
+repository=Ilusiv-media/fyug
+version=
+sha256=
