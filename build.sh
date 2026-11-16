@@ -2,8 +2,14 @@
 # Vercel's build command (see vercel.json). Downloads the hosted MCP server's
 # archive that release.txt pins, refuses it unless its SHA-256 is the pinned
 # one, and writes the Build Output inside it to .vercel/output, which Vercel
-# deploys as is. Any failure exits non-zero with no .vercel/output left, so the
-# build fails and nothing is deployed.
+# deploys as is, together with static/release.txt: the pin it verified, served
+# at /release.txt so anyone can tell which archive a deployment runs. Any
+# failure exits non-zero with no .vercel/output left, so the build fails and
+# nothing is deployed.
+#
+# A pin with a `build` key names a hosted-only build, published as an asset of
+# the release tagged hosted-<version>-<build>; one without names a product
+# release's archive, published with the release tagged v<version>.
 #
 # RELEASE_DOWNLOAD_BASE (default https://github.com) is the download origin.
 set -euo pipefail
@@ -21,7 +27,7 @@ fail() {
 
 # release.txt: key=value lines; blank lines and # comments are ignored.
 [ -f release.txt ] || fail "no release.txt"
-repository="" version="" sha256=""
+repository="" version="" sha256="" build=""
 seen=" "
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%$'\r'}"
@@ -34,6 +40,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     repository) repository="$value" ;;
     version) version="$value" ;;
     sha256) sha256="$value" ;;
+    build) build="$value" ;;
     *) fail "release.txt: unknown key $key" ;;
   esac
 done < release.txt
@@ -47,8 +54,17 @@ fi
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "release.txt: bad version: $version"
 [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] || fail "release.txt: bad sha256: $sha256"
 
-name="fyug-hosted-$version.vercel.tar.xz"
-url="$base/$repository/releases/download/v$version/$name"
+case "$seen" in
+  *" build "*)
+    [[ "$build" =~ ^[0-9a-z][0-9a-z-]{0,39}$ ]] || fail "release.txt: bad build: $build"
+    name="fyug-hosted-$version-$build.vercel.tar.xz"
+    url="$base/$repository/releases/download/hosted-$version-$build/$name"
+    ;;
+  *)
+    name="fyug-hosted-$version.vercel.tar.xz"
+    url="$base/$repository/releases/download/v$version/$name"
+    ;;
+esac
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -66,8 +82,17 @@ mkdir "$work/archive"
 tar -xJf "$work/$name" -C "$work/archive" || fail "could not unpack $name"
 grep -qxF "product_version=$version" "$work/archive/provenance.txt" 2>/dev/null ||
   fail "$name's provenance.txt does not name product_version=$version"
+if [ -n "$build" ]; then
+  grep -qxF "build=$build" "$work/archive/provenance.txt" ||
+    fail "$name's provenance.txt does not name build=$build"
+fi
 [ -f "$work/archive/output/config.json" ] || fail "$name has no output/config.json"
 
 mkdir -p .vercel
 cp -R "$work/archive/output" "$output" || fail "could not write $output"
-echo "Serving fyug hosted $version ($sha256)"
+mkdir -p "$output/static" || fail "could not write $output/static"
+{
+  printf 'repository=%s\nversion=%s\nsha256=%s\n' "$repository" "$version" "$sha256"
+  if [ -n "$build" ]; then printf 'build=%s\n' "$build"; fi
+} > "$output/static/release.txt" || fail "could not write $output/static/release.txt"
+echo "Serving fyug hosted $version${build:+ build $build} ($sha256)"

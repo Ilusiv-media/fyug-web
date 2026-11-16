@@ -1,9 +1,15 @@
 # fyug-web
 
 The site Vercel deploys for Fyug's hosted MCP server, `https://mcp.fyug.fm/mcp`.
-It holds no server binary. `release.txt` pins one public release of
-[`Ilusiv-media/fyug`](https://github.com/Ilusiv-media/fyug/releases): its
-version and the SHA-256 of that release's `fyug-hosted-<version>.vercel.tar.xz`.
+It holds no server binary. `release.txt` pins one public archive of the server
+and its SHA-256, in one of two forms:
+
+- A product release: `repository=Ilusiv-media/fyug`, its `version` and the
+  SHA-256 of that release's `fyug-hosted-<version>.vercel.tar.xz`.
+- A hosted-only build: `repository=Ilusiv-media/fyug-web`, the product
+  `version` it was built from, its `build` id and the SHA-256 of
+  `fyug-hosted-<version>-<build>.vercel.tar.xz`, an asset of this repository's
+  release tagged `hosted-<version>-<build>`.
 
 On every push, Vercel runs `bash build.sh` (see `vercel.json`). The script
 downloads the pinned archive from the release, refuses it unless its SHA-256
@@ -11,16 +17,22 @@ is the pinned one, checks that the archive names the pinned version, and
 writes the Vercel Build Output inside it to `.vercel/output`, which Vercel
 deploys as is. Any failure fails the build, so nothing is deployed.
 
+Every deployment also serves the pin it was built from at `/release.txt`
+(for example `https://mcp.fyug.fm/release.txt`), so the archive a deployment
+runs can be told apart from another build of the same version.
+
 - A merge to `main` deploys production.
 - Every other branch gets a preview at
   `https://fyug-web-git-<branch>-ilusiv.vercel.app/mcp`.
 
 ## How a release gets here
 
-Fyug's release workflow opens a pull request here that changes only
-`release.txt`, from a branch named `hosted-<version with dashes>`, and checks
-that its preview answers MCP `initialize` as the new version. For a production
-deployment it then merges the pull request and checks the public URL.
+Fyug's release workflow, or its workflow that builds only the hosted server,
+opens a pull request here that changes only `release.txt`, from a branch named
+`hosted-<version with dashes>`, and checks that its preview answers MCP
+`initialize` as the new version (and, for a hosted-only build, serves its
+`release.txt`). For a production deployment it then merges the pull request
+and checks the public URL the same way.
 
 ## Rollback
 
