@@ -201,12 +201,21 @@ class FyugWebBuild(unittest.TestCase):
 
     def test_a_build_with_the_same_pin_run_twice_gives_the_same_output(self):
         self.serve()
-        text = pin(sha256=self.sha)
-        self.assertEqual(self.build(text).returncode, 0)
-        self.assertEqual(self.build(text).returncode, 0)
-        output = self.site / ".vercel" / "output"
-        self.assertFalse((output / "stale.txt").exists())
-        self.assertEqual((output / "config.json").read_bytes(), self.files["output/config.json"][0])
+        files = archive_files(VERSION, build=BUILD)
+        data = make_archive(files)
+        self.serve(data, repository=SITE, build=BUILD)
+        cases = (
+            (pin(sha256=self.sha), self.files, served_pin(REPOSITORY, VERSION, self.sha)),
+            # A build pin, its keys in another order.
+            (f"build={BUILD}\nsha256={sha256_hex(data)}\nversion={VERSION}\nrepository={SITE}\n", files,
+             served_pin(SITE, VERSION, sha256_hex(data), BUILD)),
+        )
+        for text, expected, served in cases:
+            with self.subTest(text):
+                for _ in range(2):
+                    done = self.build(text)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                self.assert_output(expected, served)  # the stale file an earlier build left is gone too
 
     # --- a build that cannot trust its archive deploys nothing -------------
     def test_a_download_with_another_hash_fails_and_names_the_pinned_hash(self):
