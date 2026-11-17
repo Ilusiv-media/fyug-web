@@ -1,5 +1,6 @@
-# The Fyug release whose hosted MCP server this site serves. Promote
-# Release changes this file; revert its commit to roll back.
-repository=Ilusiv-media/fyug
+# The hosted-only build of Fyug whose MCP server this site serves.
+# Deploy Hosted Server changes this file; revert its commit to roll back.
+repository=Ilusiv-media/fyug-web
 version=2026.11.1
-sha256=d3bec6628123d54760b85d82e67acc827e49a37b538874f6cb830f6ed4adec28
+sha256=b20ed0e49014e72d83333813d827b8f6ba738b198bb2788062b1a9519c2dd98c
+build=20261117033800-7d8e1c5
