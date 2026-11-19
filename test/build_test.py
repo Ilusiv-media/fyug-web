@@ -258,6 +258,13 @@ class FyugWebBuild(unittest.TestCase):
         self.serve(data)
         self.assert_refused(self.build(pin(sha256=sha256_hex(data))))
 
+    def test_an_archive_without_provenance_fails(self):
+        data = make_archive(archive_files(VERSION, omit=("provenance.txt",)))
+        self.serve(data)
+        done = self.build(pin(sha256=sha256_hex(data)))
+        self.assert_refused(done)
+        self.assertIn("no provenance.txt", done.stderr)
+
     def test_an_archive_without_a_build_output_fails(self):
         data = make_archive(archive_files(VERSION, omit=("output/config.json",)))
         self.serve(data)

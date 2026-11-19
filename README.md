@@ -6,8 +6,8 @@ and its SHA-256, in one of two forms:
 
 - A product release: `repository=Ilusiv-media/fyug`, its `version` and the
   SHA-256 of that release's `fyug-hosted-<version>.vercel.tar.xz`.
-- A hosted-only build: `repository=Ilusiv-media/fyug-web`, the product
-  `version` it was built from, its `build` id and the SHA-256 of
+- A hosted-only build: `repository=Ilusiv-media/fyug-web`, the hosted
+  server's own `version`, its `build` id and the SHA-256 of
   `fyug-hosted-<version>-<build>.vercel.tar.xz`, an asset of this repository's
   release tagged `hosted-<version>-<build>`.
 
