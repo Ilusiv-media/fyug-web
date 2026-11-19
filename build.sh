@@ -80,8 +80,16 @@ fi
 
 mkdir "$work/archive"
 tar -xJf "$work/$name" -C "$work/archive" || fail "could not unpack $name"
-grep -qxF "product_version=$version" "$work/archive/provenance.txt" 2>/dev/null ||
-  fail "$name's provenance.txt does not name product_version=$version"
+# The hosted server has its own version, which an archive records as
+# hosted_version. An archive from before it did records only the product's.
+[ -f "$work/archive/provenance.txt" ] || fail "$name has no provenance.txt"
+if grep -q '^hosted_version=' "$work/archive/provenance.txt"; then
+  recorded=hosted_version
+else
+  recorded=product_version
+fi
+grep -qxF "$recorded=$version" "$work/archive/provenance.txt" ||
+  fail "$name's provenance.txt does not name $recorded=$version"
 if [ -n "$build" ]; then
   grep -qxF "build=$build" "$work/archive/provenance.txt" ||
     fail "$name's provenance.txt does not name build=$build"
