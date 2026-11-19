@@ -32,10 +32,15 @@ def sha256_hex(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def archive_files(version, provenance_version=None, omit=(), build=None):
+def archive_files(version, provenance_version=None, omit=(), build=None, hosted_version=None):
     """name -> (bytes, mode) for a stand-in of the release's hosted archive,
-    or of a hosted-only build's when `build` is given."""
-    provenance = f"product_version={provenance_version or version}\n" + (f"build={build}\n" if build else "")
+    or of a hosted-only build's when `build` is given. `hosted_version` is the
+    hosted server's own version, which archives made since it had one record."""
+    provenance = (
+        (f"hosted_version={hosted_version}\n" if hosted_version else "")
+        + f"product_version={provenance_version or version}\n"
+        + (f"build={build}\n" if build else "")
+    )
     files = {
         "provenance.txt": (provenance.encode(), 0o644),
         "output/config.json": (b'{\n  "version": 3\n}\n', 0o644),
@@ -192,6 +197,21 @@ class FyugWebBuild(unittest.TestCase):
                 data = make_archive(files)
                 self.serve(data, repository=SITE, build=BUILD)
                 self.assert_refused(self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n")))
+
+    def test_a_build_pin_names_the_hosted_servers_own_version(self):
+        files = archive_files(VERSION, provenance_version="2026.11.0", build=BUILD, hosted_version=VERSION)
+        data = make_archive(files)
+        self.serve(data, repository=SITE, build=BUILD)
+        done = self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n"))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assert_output(files, served_pin(SITE, VERSION, sha256_hex(data), BUILD))
+
+    def test_the_product_version_does_not_stand_in_for_another_hosted_version(self):
+        data = make_archive(archive_files(VERSION, build=BUILD, hosted_version="2026.11.0"))
+        self.serve(data, repository=SITE, build=BUILD)
+        done = self.build(pin(SITE, sha256=sha256_hex(data), extra=f"build={BUILD}\n"))
+        self.assert_refused(done)
+        self.assertIn(f"hosted_version={VERSION}", done.stderr)
 
     def test_a_build_pin_does_not_fall_back_to_the_release_download(self):
         data = make_archive(archive_files(VERSION, build=BUILD))
