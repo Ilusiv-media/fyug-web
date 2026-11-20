@@ -2,5 +2,5 @@
 # Deploy Hosted Server changes this file; revert its commit to roll back.
 repository=Ilusiv-media/fyug-web
 version=2026.11.4
-sha256=a1b5d4d49c17e7f1335c1ee4738f17f550882fd586e376c21e310a4d7055f16c
-build=20261119225913-bdae5c4
+sha256=0ea47d516bce6f338af167650daa2635100d6d9f3bea286a482dcad48f8e6ed3
+build=20261120180650-f68ebc8
