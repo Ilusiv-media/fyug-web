@@ -1,6 +1,15 @@
 # fyug-web
 
-The site Vercel deploys for Fyug's hosted MCP server, `https://mcp.fyug.fm/mcp`.
+The sites Vercel deploys for Fyug, each from a pin of public built output:
+
+- The hosted MCP server, `https://mcp.fyug.fm/mcp`: Vercel project `fyug-web`,
+  from this repository's root (`build.sh`, `release.txt`, `vercel.json`).
+- The landing site, `https://www.fyug.fm`: Vercel project `fyug.fm`, from
+  [`landing/`](#the-landing-site).
+
+Neither reads or changes the other's files. The rest of this section, up to
+[The landing site](#the-landing-site), is the hosted server's.
+
 It holds no server binary. `release.txt` pins one public archive of the server
 and its SHA-256, in one of two forms:
 
@@ -41,13 +50,34 @@ merge the revert). Vercel builds the previous pin and serves it. Merge pin pull
 requests with "Rebase and merge", as the release workflow does, so each pin
 commit lands on `main` as written.
 
+## The landing site
+
+`landing/release.txt` pins one build of the landing site:
+`repository=Ilusiv-media/fyug-web`, its `build` id, the SHA-256 of
+`fyug-landing-<build>.vercel.tar.xz` (the one asset of this repository's
+release tagged `landing-<build>`) and the product `commit` it was built from.
+The Vercel project `fyug.fm` has `landing` as its root directory and runs
+`bash build.sh` there (see `landing/vercel.json`), which downloads the pinned
+archive, refuses it unless its SHA-256 is the pinned one and its provenance
+names the pinned build and commit, and writes its Build Output to
+`landing/.vercel/output`. Every deployment serves its pin at
+`https://www.fyug.fm/release.txt`.
+
+Fyug's Deploy Landing Site workflow writes the pin: a commit that changes only
+`landing/release.txt`, on branch `landing-preview` for a preview or
+`landing-production`, which it then fast-forwards `main` to. To roll back,
+revert that pin commit on `main`. Until the first pin, the committed pin names
+no build and the landing build fails on purpose, so production keeps serving
+what it served before.
+
 ## Build locally
 
 ```sh
-bash build.sh   # needs curl, tar with xz, and sha256sum or shasum
+bash build.sh           # the hosted server; needs curl, tar with xz, and sha256sum or shasum
+bash landing/build.sh   # the landing site, the same way
 ```
 
 `RELEASE_DOWNLOAD_BASE` (default `https://github.com`) changes where the
-archive is downloaded from. `python3 -I test/build_test.py` checks the script
-against a stand-in release; CI runs it with `shellcheck build.sh` on every pull
-request.
+archive is downloaded from. `python3 -I test/build_test.py` and
+`python3 -I test/landing_build_test.py` check the scripts against stand-in
+releases; CI runs them with `shellcheck` on every pull request.
