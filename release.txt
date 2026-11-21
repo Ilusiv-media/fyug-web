@@ -1,6 +1,6 @@
 # The hosted-only build of Fyug whose MCP server this site serves.
 # Deploy Hosted Server changes this file; revert its commit to roll back.
 repository=Ilusiv-media/fyug-web
-version=2026.11.4
-sha256=a1b5d4d49c17e7f1335c1ee4738f17f550882fd586e376c21e310a4d7055f16c
-build=20261119225913-bdae5c4
+version=2026.11.5
+sha256=cef25b08c8fe79bdd70d5ab3b894c186bbc50af8457e90dcbde267d9210f2135
+build=20261121002252-e32715a
