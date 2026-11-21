@@ -1,0 +1,6 @@
+# The landing site build that www.fyug.fm serves.
+# Deploy Landing Site changes this file; revert its commit to roll back.
+repository=Ilusiv-media/fyug-web
+build=
+sha256=
+commit=
