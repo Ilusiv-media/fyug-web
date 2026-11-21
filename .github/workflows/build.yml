@@ -1,6 +1,6 @@
 name: Build Script
 
-# Checks build.sh and the pin on every pull request, pin pull requests
+# Checks build.sh, landing/build.sh and their pins on every pull request, pin pull requests
 # included, before Vercel's own build of the same commit matters.
 on:
   pull_request:
@@ -22,7 +22,9 @@ jobs:
           persist-credentials: false
 
       - name: Lint
-        run: shellcheck build.sh
+        run: shellcheck build.sh landing/build.sh
 
       - name: Test
-        run: python3 -I test/build_test.py
+        run: |
+          python3 -I test/build_test.py
+          python3 -I test/landing_build_test.py
